@@ -1,4 +1,4 @@
-Settle + Clipping Fix  1.0.2 (optional add-on)
+Settle + Clipping Fix  1.0.3 (optional add-on)
 ==============================================
 
 One hdtsmp64.dll that contains both:
