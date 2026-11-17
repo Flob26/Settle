@@ -30,7 +30,7 @@ Uninstall
 
 License and source
 - hdtsmp64.dll is a modified version of Faster HDT-SMP, licensed GPL-3.0 with the FSMP exceptions
-  (Licenses\GPL-3.0.txt, Licenses\FSMP-EXCEPTIONS.txt). Settle.dll is licensed GPL-3.0.
+  (Licenses\GPL-3.0.txt, Licenses\FSMP-EXCEPTIONS.txt). Settle.dll is licensed GPL-3.0-or-later (Licenses\GPL-3.0.txt).
 - Source code: <GitHub links to be added>
 
 Credits

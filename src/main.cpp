@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Settle - Copyright (C) 2026 Robert. This program comes with ABSOLUTELY NO WARRANTY; see LICENSE.
 // Settle - Seat Collision for SMP Cloth (SKSE plugin). Needs the Settle build of Faster HDT-SMP
 // (hdtsmp64.dll with the world-collision interface, WorldCollisionAPI.h).
 // - Seat collision: on TESFurnitureEvent enter (main thread via the SKSE task queue) the furniture's Havok
