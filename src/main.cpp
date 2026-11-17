@@ -379,7 +379,8 @@ namespace
 		bool  seatSwap = true;         // use the SeatSwap pairs (needs the fork's interface v2)
 		bool  autoHug = true;          // generic seated hug (needs interface v3)
 		hdt::world::HugParams hug = DefaultHug();  // release defaults (Settle.ini overrides any of them)
-		float freezeDelay = 2.5f;      // seconds after the actor is fully seated before the hug is locked (0 = never)
+		float freezeDelay = 2.5f;
+		float seatAbove = 3.0f;        // up-facing mode: drop surfaces whose lowest point is more than this above the seat (armrests); < 0 = keep all      // seconds after the actor is fully seated before the hug is locked (0 = never)
 	};
 
 	std::string Trim(std::string s)
@@ -455,6 +456,7 @@ namespace
 				else if (key == "bseatswap") s.seatSwap = v != 0.0f;
 				else if (key == "bautohug") s.autoHug = v != 0.0f;
 				else if (key == "fhugfreezedelay") s.freezeDelay = v;
+				else if (key == "fseatabove") s.seatAbove = v;
 				else ApplyHugKey(s.hug, key, v);
 			} catch (...) {
 			}
@@ -637,6 +639,8 @@ namespace
 		std::vector<float>         pos;
 		std::vector<std::uint32_t> idx;
 		std::uint32_t              dropped = 0;
+		std::uint32_t              aboveSeat = 0;   // up-facing triangles dropped because they lie above the seat (armrests, backrest tops)
+		float                      seatTop = 0.0f;  // world z of the detected seat surface (0 = not detected)
 	};
 
 	Mesh BuildMesh(const std::vector<BodyTris>& a_bodies, const Settings& s)
@@ -652,6 +656,14 @@ namespace
 			}
 			return it->second;
 		};
+		// candidate triangles (world space, wound up when up-facing only)
+		struct Tri
+		{
+			V3    A, B, C;
+			bool  up;    // the original winding faced up (a real top surface)
+			float area, zMin, zMax, zMid;
+		};
+		std::vector<Tri> tris;
 		for (const auto& b : a_bodies) {
 			for (const auto& t : b.tris) {
 				V3 A = World(b, t.a), B = World(b, t.b), C = World(b, t.c);
@@ -662,6 +674,7 @@ namespace
 					++m.dropped;
 					continue;
 				}
+				bool up = n.z > 0;
 				if (s.upFacingOnly) {
 					// orientation-independent: keep near-horizontal triangles, wound so the normal points up
 					if (std::fabs(n.z) / len < s.upFacingMinZ) {
@@ -672,6 +685,50 @@ namespace
 						std::swap(B, C);
 					}
 				}
+				const float zMin = std::min({ A.z, B.z, C.z }), zMax = std::max({ A.z, B.z, C.z });
+				tris.push_back({ A, B, C, up, 0.5f * len, zMin, zMax, (A.z + B.z + C.z) / 3.0f });
+			}
+		}
+
+		// Seat detection (up-facing mode): the seat is the largest horizontal level among the real top surfaces.
+		// Surfaces entirely above it (armrests, backrest tops) would push the cloth beside the thighs up over them,
+		// so they are dropped. Lower surfaces (stretchers, floor plates) are kept: cloth never reaches them from above.
+		if (s.upFacingOnly && s.seatAbove >= 0.0f) {
+			std::vector<const Tri*> ups;
+			for (const auto& t : tris) {
+				if (t.up) {
+					ups.push_back(&t);
+				}
+			}
+			std::sort(ups.begin(), ups.end(), [](const Tri* x, const Tri* y) { return x->zMid < y->zMid; });
+			float bestArea = 0.0f, curArea = 0.0f, curTop = -1e30f, prevZ = -1e30f;
+			for (const auto* t : ups) {
+				if (t->zMid - prevZ > 3.0f) {  // a new level starts
+					curArea = 0.0f;
+					curTop = -1e30f;
+				}
+				prevZ = t->zMid;
+				curArea += t->area;
+				curTop = std::max(curTop, t->zMax);
+				if (curArea > bestArea) {
+					bestArea = curArea;
+					m.seatTop = curTop;
+				}
+			}
+			if (bestArea > 0.0f) {
+				std::erase_if(tris, [&](const Tri& t) {
+					const bool above = t.zMin > m.seatTop + s.seatAbove;
+					if (above) {
+						++m.aboveSeat;
+					}
+					return above;
+				});
+			}
+		}
+
+		for (const auto& t : tris) {
+			{
+				const V3 &A = t.A, &B = t.B, &C = t.C;
 				const auto ia = vert(A), ib = vert(B), ic = vert(C);
 				if (ia == ib || ib == ic || ia == ic) {
 					++m.dropped;
@@ -825,6 +882,9 @@ namespace
 		SKSE::log::info("+++ {} ({:08X}) sat in {:08X} '{}': {} of {} triangles, {} vertices -> collider {} (margin {:.1f}, penetration {:.1f}, friction {:.2f}, {})",
 			a_actor->GetName(), id, a_furn->GetFormID(), furnName, d.triangleCount, raw, d.vertexCount, handle,
 			d.margin, d.penetration, d.friction, s.upFacingOnly ? "up-facing only" : "all triangles");
+		if (mesh.aboveSeat > 0) {
+			SKSE::log::info("    seat at z {:.1f}: {} raised surfaces (armrests, backrest tops) left out", mesh.seatTop, mesh.aboveSeat);
+		}
 		remember(handle);
 		if (isPlayer && s.debugObj) {
 			WriteObj(bodies, std::format("{:08X}_{}", a_furn->GetFormID(), furnName.empty() ? "furniture" : furnName));

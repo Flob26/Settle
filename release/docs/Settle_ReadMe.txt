@@ -1,4 +1,4 @@
-Settle - Seat Collision for SMP Cloth  1.0.2 (beta)
+Settle - Seat Collision for SMP Cloth  1.0.3 (beta)
 ====================================================
 
 What it does
