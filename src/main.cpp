@@ -8,6 +8,7 @@
 // - Seated hug: short skirts get their lower cloth bones tied to the thighs/shins while seated (and locked after
 //   fHugFreezeDelay); long skirts (fHugLongSkirt) keep plain physics + seat collision.
 // - Per-outfit hug overrides: Data\SKSE\Plugins\Settle\HugOverrides\*.ini ([physics xml path] + fHug* keys).
+// - Actors already seated when a save loads are picked up ~3 s after the load.
 // - Seat swap: Data\SKSE\Plugins\Settle\SeatSwap\*.ini ("standing physics XML = seated physics XML").
 // Settings: Data\SKSE\Plugins\Settle.ini, re-read on every sit. Log: Documents\My Games\Skyrim Special Edition\SKSE\Settle.log
 
@@ -830,6 +831,44 @@ namespace
 		}
 	}
 
+	// Actors that are already seated when a save finishes loading get no TESFurnitureEvent, so their seat
+	// collision / hug would only appear after they stand up and sit again. Re-apply for them once the load
+	// has settled (3D and SMP systems built).
+	void RescanSeated(const char* a_why)
+	{
+		std::thread([why = std::string(a_why)]() {
+			std::this_thread::sleep_for(std::chrono::seconds(3));
+			SKSE::GetTaskInterface()->AddTask([why]() {
+				std::vector<RE::Actor*> actors;
+				if (auto* player = RE::PlayerCharacter::GetSingleton()) {
+					actors.push_back(player);
+				}
+				if (auto* lists = RE::ProcessLists::GetSingleton()) {
+					for (auto& h : lists->highActorHandles) {
+						if (auto a = h.get()) {
+							actors.push_back(a.get());
+						}
+					}
+				}
+				int n = 0;
+				for (auto* a : actors) {
+					auto* state = a ? a->AsActorState() : nullptr;
+					if (!state || state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kIsSitting) {
+						continue;
+					}
+					auto furn = a->GetOccupiedFurniture().get();
+					if (!furn) {
+						continue;
+					}
+					SKSE::log::info("+++ {} ({:08X}) already seated after {}: applying", a->GetName(), a->GetFormID(), why);
+					OnSit(a, furn.get());
+					++n;
+				}
+				SKSE::log::info("rescan after {}: {} seated actor(s)", why, n);
+			});
+		}).detach();
+	}
+
 	class FurnitureSink final : public RE::BSTEventSink<RE::TESFurnitureEvent>
 	{
 	public:
@@ -906,6 +945,11 @@ namespace
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
 			RemoveAll("loading a save");
+			break;
+		case SKSE::MessagingInterface::kPostLoadGame:
+			if (g_world) {
+				RescanSeated("loading a save");
+			}
 			break;
 		case SKSE::MessagingInterface::kNewGame:
 			RemoveAll("new game");
