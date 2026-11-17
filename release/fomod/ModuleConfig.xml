@@ -5,6 +5,35 @@
 		<folder source="00 Core" destination="" />
 	</requiredInstallFiles>
 	<installSteps order="Explicit">
+		<installStep name="CPU variant">
+			<optionalFileGroups order="Explicit">
+				<group name="Which Faster HDT-SMP variant did you install?" type="SelectExactlyOne">
+					<plugins order="Explicit">
+						<plugin name="AVX">
+							<description>Pick the same variant you chose when installing Faster HDT-SMP. AVX runs on every CPU from roughly 2011 on.</description>
+							<files>
+								<folder source="01 CPU AVX" destination="" />
+							</files>
+							<typeDescriptor><type name="Recommended" /></typeDescriptor>
+						</plugin>
+						<plugin name="AVX2">
+							<description>Pick the same variant you chose when installing Faster HDT-SMP. AVX2: most CPUs from roughly 2013 (Intel) / 2015 (AMD) on.</description>
+							<files>
+								<folder source="01 CPU AVX2" destination="" />
+							</files>
+							<typeDescriptor><type name="Optional" /></typeDescriptor>
+						</plugin>
+						<plugin name="AVX-512">
+							<description>Pick the same variant you chose when installing Faster HDT-SMP. AVX-512 only runs on CPUs that support it (many Intel desktop CPUs do not); if unsure, choose AVX2.</description>
+							<files>
+								<folder source="01 CPU AVX-512" destination="" />
+							</files>
+							<typeDescriptor><type name="Optional" /></typeDescriptor>
+						</plugin>
+					</plugins>
+				</group>
+			</optionalFileGroups>
+		</installStep>
 		<installStep name="Version">
 			<optionalFileGroups order="Explicit">
 				<group name="Choose a version" type="SelectExactlyOne">

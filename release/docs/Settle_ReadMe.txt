@@ -1,4 +1,4 @@
-Settle - Seat Collision for SMP Cloth  1.0.1 (beta)
+Settle - Seat Collision for SMP Cloth  1.0.2 (beta)
 ====================================================
 
 What it does
@@ -10,7 +10,8 @@ What it does
 Requirements
 - Skyrim SE/AE with SKSE and Address Library for SKSE Plugins. Tested on 1.6.1170.
 - Faster HDT-SMP 4.1.1 (by DaymareOn and contributors).
-  Settle ships a modified build of it (SKSE\Plugins\hdtsmp64.dll, AVX). Settle must overwrite FSMP's DLL:
+  Settle ships a modified build of it (SKSE\Plugins\hdtsmp64.dll) in AVX, AVX2 and AVX-512 versions;
+  the installer asks which one: pick the same variant you chose when installing FSMP. Settle must overwrite FSMP's DLL:
   in MO2 put Settle BELOW Faster HDT-SMP in the left pane; in Vortex make Settle load after it.
   FSMP's other files (configs) are still used.
 
@@ -23,7 +24,7 @@ Settings
 Known limits
 - Only real seats with collision: no effect on invisible sit markers (rocks, ledges, ground), tables or walls.
 - Long and slit skirts get seat collision only (no hug).
-- AVX build only (AVX2/AVX512 builds may come later).
+- AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs).
 
 Uninstall
 - Remove Settle; FSMP's own hdtsmp64.dll takes over again. Nothing is saved in your save game.
