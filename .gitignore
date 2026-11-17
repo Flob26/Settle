@@ -1,0 +1,8 @@
+build/
+extern/
+build.log
+# local backups
+*.v0*.ini
+*.v0*.txt
+HugOverrides-*.ini
+src/*.cpp.txt
