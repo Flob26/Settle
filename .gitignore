@@ -6,3 +6,4 @@ build.log
 *.v0*.txt
 HugOverrides-*.ini
 src/*.cpp.txt
+local-flobrim/

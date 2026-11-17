@@ -1,11 +1,11 @@
 @echo off
-rem SMP World Collision - build script. Double-click to build. Output and errors go to build.log (Claude reads it).
+rem Settle - build script. Double-click to build. Output and errors go to build.log (Claude reads it).
 setlocal
 cd /d "%~dp0"
 call :main > build.log 2>&1
 set RC=%ERRORLEVEL%
 type build.log
-if %RC%==0 (echo. & echo BUILD OK - DLL copied to the "SMP World Collision (dev)" MO2 mod) else (echo. & echo BUILD FAILED - tell Claude, it can read build.log)
+if %RC%==0 (echo. & echo BUILD OK - Settle.dll copied to the "SMP World Collision (dev)" MO2 mod) else (echo. & echo BUILD FAILED - tell Claude, it can read build.log)
 pause
 exit /b %RC%
 
@@ -21,6 +21,6 @@ cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsys
 cmake --build build --config Release || exit /b 1
 set "OUT=..\..\Flobrim\mods\SMP World Collision (dev)\SKSE\Plugins"
 if not exist "%OUT%" mkdir "%OUT%"
-copy /y "build\Release\SMPWorldCollision.dll" "%OUT%\" || exit /b 1
-if exist "build\Release\SMPWorldCollision.pdb" copy /y "build\Release\SMPWorldCollision.pdb" "%OUT%\"
+copy /y "build\Release\Settle.dll" "%OUT%\" || exit /b 1
+if exist "build\Release\Settle.pdb" copy /y "build\Release\Settle.pdb" "%OUT%\"
 exit /b 0

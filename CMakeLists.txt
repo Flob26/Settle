@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.22)
 
-# SMP World Collision (working title) - Robert's SKSE plugin.
-# Stage 2 step 1: toolchain check. Loads on Skyrim SE/AE (address library, so 1.6.1170 is fine) and writes a log.
-project(SMPWorldCollision VERSION 0.6.1 LANGUAGES CXX)
+# Settle - Seat Collision for SMP Cloth - Robert's SKSE plugin.
+# Address-library based (SE/AE); tested on 1.6.1170.
+project(Settle VERSION 1.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,7 +24,7 @@ get_target_property(COMMONLIB_SRC_DIR CommonLibSSE SOURCE_DIR)
 include(${COMMONLIB_SRC_DIR}/cmake/CommonLibSSE.cmake)
 
 add_commonlibsse_plugin(${PROJECT_NAME}
-	NAME "SMPWorldCollision"
+	NAME "Settle"
 	AUTHOR "Robert"
 	USE_ADDRESS_LIBRARY
 	SOURCES src/main.cpp

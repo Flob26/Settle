@@ -1,17 +1,13 @@
-// SMP World Collision (working title) - v0.4.0: live seat collision + seated physics swap + generic seated hug
-// (thighs + shins) + freeze of the settled cloth + per-outfit hug overrides
-// (Data\SKSE\Plugins\SMPWorldCollision\HugOverrides\*.ini: [physics xml path] sections with fHug* keys).
-// Needs the Flobrim fork of Faster HDT-SMP (world-collision interface, WorldCollisionAPI.h).
-// On TESFurnitureEvent enter (main thread via the SKSE task queue): extract the furniture's Havok
-// collision triangles in world space and register them with FSMP as a static collider for that
-// actor's SMP bodies; on exit, remove it. Settings: Data\SKSE\Plugins\SMPWorldCollision.ini,
-// re-read on every sit (edit it while the game runs, then stand up and sit again).
-// Seat swap (needs interface v2): every *.ini in Data\SKSE\Plugins\SMPWorldCollision\SeatSwap\ lists
-// "standing physics XML = seated physics XML" pairs; on sit the worn item using the standing XML is
-// rebuilt from the seated XML, and swapped back on stand.
-// Generic hug (needs interface v3): items without a seat-swap pair get spring constraints from their
-// lower-skirt cloth bones to the same-side thigh while seated ([AutoHug] in the INI).
-// Output: Documents\My Games\Skyrim Special Edition\SKSE\SMPWorldCollision.log
+// Settle - Seat Collision for SMP Cloth (SKSE plugin). Needs the Settle build of Faster HDT-SMP
+// (hdtsmp64.dll with the world-collision interface, WorldCollisionAPI.h).
+// - Seat collision: on TESFurnitureEvent enter (main thread via the SKSE task queue) the furniture's Havok
+//   collision triangles are extracted in world space and registered with FSMP as a collider for that actor's
+//   SMP bodies; removed again on exit.
+// - Seated hug: short skirts get their lower cloth bones tied to the thighs/shins while seated (and locked after
+//   fHugFreezeDelay); long skirts (fHugLongSkirt) keep plain physics + seat collision.
+// - Per-outfit hug overrides: Data\SKSE\Plugins\Settle\HugOverrides\*.ini ([physics xml path] + fHug* keys).
+// - Seat swap: Data\SKSE\Plugins\Settle\SeatSwap\*.ini ("standing physics XML = seated physics XML").
+// Settings: Data\SKSE\Plugins\Settle.ini, re-read on every sit. Log: Documents\My Games\Skyrim Special Edition\SKSE\Settle.log
 
 #include "WorldCollisionAPI.h"
 
@@ -313,12 +309,12 @@ namespace
 		if (!dir) {
 			return;
 		}
-		const auto folder = *dir / "SMPWorldCollision";
+		const auto folder = *dir / "Settle";
 		std::error_code ec;
 		std::filesystem::create_directories(folder, ec);
 		const auto path = folder / (SafeFileName(a_name) + ".obj");
 		std::ofstream f(path);
-		f << "# SMPWorldCollision furniture collision, world space, game units\n";
+		f << "# Settle furniture collision, world space, game units\n";
 		std::size_t base = 1;
 		for (const auto& b : a_bodies) {
 			f << "o " << SafeFileName(b.node) << "\n";
@@ -337,6 +333,35 @@ namespace
 
 	// ------------------------------------------------------------------ settings
 
+	// Release defaults (tuned in game 2026-11-16): rigid hug of short skirts, cloth resting on the thigh surface,
+	// back panels lifted, shins tied below kneeT, long skirts skipped.
+	hdt::world::HugParams DefaultHug()
+	{
+		hdt::world::HugParams h;
+		h.tMin = -0.05f;
+		h.tMax = 1.15f;
+		h.maxDist = 35.0f;
+		h.linearLimit = 0.0f;
+		h.angularLimit = 0.0f;
+		h.linearStiffness = 20.0f;
+		h.angularStiffness = 5.0f;
+		h.damping = 0.5f;
+		h.backLift = 3.5f;
+		h.pull = 30.0f;
+		h.surface = 5.5f;
+		h.debug = 0;
+		h.shinMax = 1.0f;
+		h.shinSurface = 5.0f;
+		h.pullFraction = 1.0f;
+		h.kneeT = 0.9f;
+		h.centerBand = 0.0f;
+		h.pullMode = 0.0f;
+		h.frontArc = 0.0f;
+		h.centerBlend = 0.0f;
+		h.longSkirt = 0.18f;
+		return h;
+	}
+
 	struct Settings
 	{
 		bool  enabled = true;
@@ -350,7 +375,7 @@ namespace
 		bool  debugObj = false;        // player only: write the registered triangles as .obj
 		bool  seatSwap = true;         // use the SeatSwap pairs (needs the fork's interface v2)
 		bool  autoHug = true;          // generic seated hug (needs interface v3)
-		hdt::world::HugParams hug;     // defaults from WorldCollisionAPI.h
+		hdt::world::HugParams hug = DefaultHug();  // release defaults (Settle.ini overrides any of them)
 		float freezeDelay = 2.5f;      // seconds after the actor is fully seated before the hug is locked (0 = never)
 	};
 
@@ -394,7 +419,7 @@ namespace
 	Settings LoadSettings()
 	{
 		Settings s;
-		std::ifstream f("Data/SKSE/Plugins/SMPWorldCollision.ini");
+		std::ifstream f("Data/SKSE/Plugins/Settle.ini");
 		if (!f) {
 			return s;
 		}
@@ -440,13 +465,13 @@ namespace
 		std::string standing, seated;
 	};
 
-	// Data\SKSE\Plugins\SMPWorldCollision\SeatSwap\*.ini: "standing XML path = seated XML path" per line.
+	// Data\SKSE\Plugins\Settle\SeatSwap\*.ini: "standing XML path = seated XML path" per line.
 	// Paths must match the physics path exactly as the outfit's NIF writes it (e.g. meshes\...\x.xml).
 	std::vector<SwapPair> LoadSwapPairs()
 	{
 		std::vector<SwapPair> pairs;
 		std::error_code ec;
-		const std::filesystem::path dir("Data/SKSE/Plugins/SMPWorldCollision/SeatSwap");
+		const std::filesystem::path dir("Data/SKSE/Plugins/Settle/SeatSwap");
 		if (!std::filesystem::is_directory(dir, ec)) {
 			return pairs;
 		}
@@ -479,14 +504,14 @@ namespace
 		return pairs;
 	}
 
-	// Data\SKSE\Plugins\SMPWorldCollision\HugOverrides\*.ini:
+	// Data\SKSE\Plugins\Settle\HugOverrides\*.ini:
 	//   [meshes\armor\Some Outfit\skirt.xml]   <- the outfit's physics XML path (as in the log's "hug ..." lines)
 	//   fHugPullFraction = 0.5                  <- any fHug* key; unlisted keys keep the main INI value
 	std::vector<std::pair<std::string, hdt::world::HugParams>> LoadHugOverrides(const hdt::world::HugParams& base)
 	{
 		std::vector<std::pair<std::string, hdt::world::HugParams>> out;
 		std::error_code ec;
-		const std::filesystem::path dir("Data/SKSE/Plugins/SMPWorldCollision/HugOverrides");
+		const std::filesystem::path dir("Data/SKSE/Plugins/Settle/HugOverrides");
 		if (!std::filesystem::is_directory(dir, ec)) {
 			return out;
 		}
@@ -892,7 +917,7 @@ namespace
 SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 {
 	SKSE::Init(a_skse);
-	SKSE::log::info("SMPWorldCollision {} loaded; game runtime {}",
+	SKSE::log::info("Settle {} loaded; game runtime {}",
 		SKSE::PluginDeclaration::GetSingleton()->GetVersion().string("."),
 		REL::Module::get().version().string("."));
 
