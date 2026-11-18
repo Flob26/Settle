@@ -397,7 +397,7 @@ namespace
 		hdt::world::HugParams hug = DefaultHug();  // release defaults (Settle.ini overrides any of them)
 		float freezeDelay = 2.5f;
 		bool  ridingHug = true;        // hug while riding a horse
-		bool  horseCollider = true;    // riding: a collider over the horse's back and flanks that follows its spine (needs interface v6)
+		bool  horseCollider = false;    // riding: a collider over the horse's back and flanks that follows its spine (needs interface v6)
 		float horseWidth = 22.0f;      // half width of the horse's back (units)
 		float horseHeight = 30.0f;     // how far the flanks curve down (units)
 		float horseFront = 25.0f;      // collider length in front of / behind the rider (units)

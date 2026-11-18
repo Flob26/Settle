@@ -7,7 +7,7 @@ What it does
 - Main version: while seated, the lower cloth of short skirts and robes is tied to the thighs (and shins),
   so it lies on the lap; it is locked once settled to stop jitter. Long skirts keep normal physics + seat collision.
 - Riding: skirts no longer flatten into a disc on horseback. The outfit's invisible ground plane is switched off
-  while riding and a collider over the horse's back keeps cloth out of the horse (both versions).
+  while riding (both versions).
   Main version: short skirts and robes are also tied to the thighs while riding.
 
 Requirements
@@ -31,7 +31,7 @@ Known limits
 - AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs).
 
 Changelog
-- 1.1.0: riding support (ground plane off while riding, horse collider, riding hug in Main).
+- 1.1.0: riding support (ground plane off while riding, riding hug in Main; optional experimental horse collider).
 - 1.0.3: skirts no longer pushed up over chair armrests (fSeatAbove).
 - 1.0.2: AVX2 and AVX-512 builds.
 - 1.0.1: actors already seated when a save loads are handled.

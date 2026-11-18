@@ -48,7 +48,7 @@ Requires Faster HDT-SMP 4.1.1 installed; Settle must overwrite its hdtsmp64.dll 
 							<typeDescriptor><type name="Recommended" /></typeDescriptor>
 						</plugin>
 						<plugin name="Collision Only">
-							<description>Only the seat collision: cloth rests on seats instead of passing through them, but is otherwise simulated normally (no seated hug, no seat swap, no riding hug). The riding fixes (ground plane off, horse collider) are included. The hugs can be turned on later in SKSE\Plugins\Settle.ini (bAutoHug = 1, bSeatSwap = 1, bRidingHug = 1).
+							<description>Only the seat collision: cloth rests on seats instead of passing through them, but is otherwise simulated normally (no seated hug, no seat swap, no riding hug). The riding fix (ground plane off) is included. The hugs can be turned on later in SKSE\Plugins\Settle.ini (bAutoHug = 1, bSeatSwap = 1, bRidingHug = 1).
 
 Requires Faster HDT-SMP 4.1.1 installed; Settle must overwrite its hdtsmp64.dll (place Settle below / after FSMP).</description>
 							<files>

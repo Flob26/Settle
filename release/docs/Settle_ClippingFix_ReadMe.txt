@@ -2,7 +2,7 @@ Settle + Clipping Fix  1.1.0 (optional add-on)
 ==============================================
 
 One hdtsmp64.dll that contains both:
-- Settle's modified Faster HDT-SMP (seat collision interface, seated hug, riding: ground plane off + horse collider), and
+- Settle's modified Faster HDT-SMP (seat collision interface, seated hug, riding: ground plane off), and
 - FSMP Clothing Clipping Fix (FSMP Discontinuity Guard) by Zorkanne33 / YoucefNabil:
   cloth is carried through teleports, reset after sudden pose changes, and held at rest briefly
   after an outfit is equipped, so legs don't end up poking through skirts after loading screens.
