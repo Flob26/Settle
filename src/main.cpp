@@ -7,7 +7,8 @@
 //   SMP bodies; removed again on exit.
 // - Seated hug: short skirts get their lower cloth bones tied to the thighs/shins while seated (and locked after
 //   fHugFreezeDelay); long skirts (fHugLongSkirt) keep plain physics + seat collision.
-// - Per-outfit hug overrides: Data\SKSE\Plugins\Settle\HugOverrides\*.ini ([physics xml path] + fHug* keys).
+// - Per-outfit hug overrides: Data\SKSE\Plugins\Settle\HugOverrides\*.ini ([physics xml path] + fHug* keys,
+//   or bIgnore = 1 to leave that item completely alone: no ties, no rebuild, sitting or riding).
 // - Actors already seated when a save loads are picked up ~3 s after the load.
 // - Riding: riders get the hug too (thighs only, [Riding] fRide* keys); found by a 0.5 s poll.
 // - Seat swap: Data\SKSE\Plugins\Settle\SeatSwap\*.ini ("standing physics XML = seated physics XML").
@@ -552,9 +553,17 @@ namespace
 	// Data\SKSE\Plugins\Settle\HugOverrides\*.ini:
 	//   [meshes\armor\Some Outfit\skirt.xml]   <- the outfit's physics XML path (as in the log's "hug ..." lines)
 	//   fHugPullFraction = 0.5                  <- any fHug* key; unlisted keys keep the main INI value
-	std::vector<std::pair<std::string, hdt::world::HugParams>> LoadHugOverrides(const hdt::world::HugParams& base)
+	//   bIgnore = 1                             <- Settle leaves this item alone (no ties, not rebuilt)
+	struct HugOverride
 	{
-		std::vector<std::pair<std::string, hdt::world::HugParams>> out;
+		std::string path;
+		hdt::world::HugParams params;
+		bool ignore = false;
+	};
+
+	std::vector<HugOverride> LoadHugOverrides(const hdt::world::HugParams& base)
+	{
+		std::vector<HugOverride> out;
 		std::error_code ec;
 		const std::filesystem::path dir("Data/SKSE/Plugins/Settle/HugOverrides");
 		if (!std::filesystem::is_directory(dir, ec)) {
@@ -576,7 +585,7 @@ namespace
 				}
 				line = Trim(line);
 				if (line.size() > 2 && line.front() == '[' && line.back() == ']') {
-					out.emplace_back(Trim(line.substr(1, line.size() - 2)), base);
+					out.push_back({ Trim(line.substr(1, line.size() - 2)), base, false });
 					cur = static_cast<int>(out.size()) - 1;
 					continue;
 				}
@@ -587,7 +596,10 @@ namespace
 				std::string key = Trim(line.substr(0, eq)), val = Trim(line.substr(eq + 1));
 				std::transform(key.begin(), key.end(), key.begin(), [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
 				try {
-					ApplyHugKey(out[cur].second, key, std::stof(val));
+					if (key == "bignore")
+						out[cur].ignore = std::stof(val) != 0.0f;
+					else
+						ApplyHugKey(out[cur].params, key, std::stof(val));
 				} catch (...) {
 				}
 			}
@@ -825,9 +837,16 @@ namespace
 			auto params = s.hug;
 			params.size = sizeof(params);
 			params.log = &HugLog;
+			std::vector<HugOverride> overrides;  // must outlive setSeatedHug (skip points into it)
 			if (g_world->version() >= 5) {
+				overrides = LoadHugOverrides(s.hug);
 				g_world->clearHugOverrides();
-				for (auto& [path, ov] : LoadHugOverrides(s.hug)) {
+				for (auto& [path, ov, ignore] : overrides) {
+					if (ignore) {
+						skip.push_back(path.c_str());
+						SKSE::log::info("    hug override '{}': ignored (bIgnore)", path);
+						continue;
+					}
 					ov.size = sizeof(ov);
 					g_world->setHugOverride(path.c_str(), &ov);
 					SKSE::log::info("    hug override '{}': pullFraction {:.2f}, pull {:.1f}, centerBand {:.1f}, kneeT {:.2f}, shinMax {:.2f}, pullMode {:.0f}, shinSurface {:.1f}, frontArc {:.0f}, centerBlend {:.1f}",
@@ -1188,7 +1207,13 @@ namespace
 					params.relaxAngle = 0.0f;
 				}
 				const bool rebuild = s.ridingHug || params.groundOff > 0.f;
-				const auto n = rebuild ? g_world->setSeatedHug(id, &params, nullptr, 0) : 0;
+				// items marked bIgnore in HugOverrides are left alone while riding too
+				const auto overrides = rebuild ? LoadHugOverrides(s.ride) : std::vector<HugOverride>{};
+				std::vector<const char*> skip;
+				for (const auto& o : overrides)
+					if (o.ignore)
+						skip.push_back(o.path.c_str());
+				const auto n = rebuild ? g_world->setSeatedHug(id, &params, skip.data(), static_cast<std::uint32_t>(skip.size())) : 0;
 				g_riding[id] = { a->GetHandle(), AddHorseCollider(a, s), rebuild };
 				SKSE::log::info("+++ {} ({:08X}): riding on, {} hug constraints + ground planes (ground plane {}, riding hug {})",
 					a->GetName(), id, n, params.groundOff > 0.f ? "off" : "kept", s.ridingHug ? "on" : "off");

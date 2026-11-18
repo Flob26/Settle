@@ -2,7 +2,7 @@
 <fomod>
 	<Name>Settle + FSMP Clothing Clipping Fix (merge)</Name>
 	<Author>iFlob</Author>
-	<Version>1.1.0</Version>
+	<Version>1.1.1</Version>
 	<Description>Optional add-on for Settle: one hdtsmp64.dll with Settle's FSMP changes plus FSMP Clothing Clipping Fix by Zorkanne33. Requires the main Settle file.</Description>
 	<Groups><element>Physics</element></Groups>
 </fomod>

@@ -1,4 +1,4 @@
-Settle - Seat Collision for SMP Cloth  1.1.0 (beta)
+Settle - Seat Collision for SMP Cloth  1.1.1 (beta)
 ====================================================
 
 What it does
@@ -9,6 +9,7 @@ What it does
 - Riding: skirts no longer flatten into a disc on horseback. The outfit's invisible ground plane is switched off
   while riding (both versions).
   Main version: short skirts and robes are also tied to the thighs while riding.
+- Tails (equippable SMP tails) are never tied to the legs.
 
 Requirements
 - Skyrim SE/AE with SKSE and Address Library for SKSE Plugins. Tested on 1.6.1170.
@@ -17,10 +18,13 @@ Requirements
   the installer asks which one: pick the same variant you chose when installing FSMP. Settle must overwrite FSMP's DLL:
   in MO2 put Settle BELOW Faster HDT-SMP in the left pane; in Vortex make Settle load after it.
   FSMP's other files (configs) are still used.
+  The matching hdtsmp64.pdb (debug symbols) is included: mods that read FSMP's internals, such as Banner Physics,
+  use it to recognise Settle's build. Keep it next to the DLL.
 
 Settings
 - SKSE\Plugins\Settle.ini, re-read every time an actor sits (no restart needed). bEnabled = 0 turns Settle off.
 - Per-outfit overrides: SKSE\Plugins\Settle\HugOverrides\*.ini (see _Examples.ini).
+  bIgnore = 1 in an item's section makes Settle leave that item alone.
 - Hand-tuned seated physics for specific outfits: SKSE\Plugins\Settle\SeatSwap\ (see _ReadMe.txt).
 - Log: Documents\My Games\Skyrim Special Edition\SKSE\Settle.log
 
@@ -30,6 +34,8 @@ Known limits
 - AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs).
 
 Changelog
+- 1.1.1: tails are no longer tied to the legs; bIgnore = 1 in HugOverrides to leave an item alone (paths are
+  case-insensitive); hdtsmp64.pdb included for Banner Physics.
 - 1.1.0: riding support (ground plane off while riding, riding hug in Main; optional experimental horse collider).
 - 1.0.3: skirts no longer pushed up over chair armrests (fSeatAbove).
 - 1.0.2: AVX2 and AVX-512 builds.
