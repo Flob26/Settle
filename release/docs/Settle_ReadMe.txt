@@ -28,7 +28,6 @@ Known limits
 - Only real seats with collision: no effect on invisible sit markers (rocks, ledges, ground), tables or walls.
 - Long and slit skirts get seat collision only (no hug); on horseback they hang freely.
 - Some long dresses sit slightly raised on benches because of their own collision setup (also without Settle).
-- Saving while mounted can trigger Skyrim's own flying-horse bug on load (also without Settle).
 - AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs).
 
 Changelog
