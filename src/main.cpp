@@ -9,6 +9,7 @@
 //   fHugFreezeDelay); long skirts (fHugLongSkirt) keep plain physics + seat collision.
 // - Per-outfit hug overrides: Data\SKSE\Plugins\Settle\HugOverrides\*.ini ([physics xml path] + fHug* keys).
 // - Actors already seated when a save loads are picked up ~3 s after the load.
+// - Riding: riders get the hug too (thighs only, [Riding] fRide* keys); found by a 0.5 s poll.
 // - Seat swap: Data\SKSE\Plugins\Settle\SeatSwap\*.ini ("standing physics XML = seated physics XML").
 // Settings: Data\SKSE\Plugins\Settle.ini, re-read on every sit. Log: Documents\My Games\Skyrim Special Edition\SKSE\Settle.log
 
@@ -365,6 +366,21 @@ namespace
 		return h;
 	}
 
+	// Riding: same engine, different pose. Thigh ties only (below the knee hangs free, also for long skirts),
+	// centre panels tied softly to both thighs so they settle over the saddle instead of splitting, no back lift.
+	hdt::world::HugParams DefaultRideHug()
+	{
+		auto h = DefaultHug();
+		h.backLift = 0.0f;
+		h.shinMax = 0.0f;
+		h.centerBlend = 6.0f;
+		h.longSkirt = 0.18f;      // long skirts: no ties, their own cloth is relaxed instead so it drapes over the horse
+		h.relaxStiffness = 0.0f;  // tried 11/18: loosening alone made long skirts floppy, not draped
+		h.relaxAngle = 0.0f;
+		h.groundOff = 1.0f;       // the real cause of the flat disc: VirtualGround rides at saddle height
+		return h;
+	}
+
 	struct Settings
 	{
 		bool  enabled = true;
@@ -380,6 +396,16 @@ namespace
 		bool  autoHug = true;          // generic seated hug (needs interface v3)
 		hdt::world::HugParams hug = DefaultHug();  // release defaults (Settle.ini overrides any of them)
 		float freezeDelay = 2.5f;
+		bool  ridingHug = true;        // hug while riding a horse
+		bool  horseCollider = true;    // riding: a collider over the horse's back and flanks that follows its spine (needs interface v6)
+		float horseWidth = 22.0f;      // half width of the horse's back (units)
+		float horseHeight = 30.0f;     // how far the flanks curve down (units)
+		float horseFront = 25.0f;      // collider length in front of / behind the rider (units)
+		float horseBack = 35.0f;
+		float horseSaddleDrop = 6.0f;  // top of the collider this far below the rider's pelvis
+		float horseArc = 110.0f;       // degrees from the top down each flank
+		float horsePenetration = 8.0f; // cloth this far inside the horse is pushed back out
+		hdt::world::HugParams ride = DefaultRideHug();  // [Riding] fRide* keys
 		float seatAbove = 3.0f;        // up-facing mode: drop surfaces whose lowest point is more than this above the seat (armrests); < 0 = keep all      // seconds after the actor is fully seated before the hug is locked (0 = never)
 	};
 
@@ -416,6 +442,9 @@ namespace
 		else if (key == "fhugfrontarc") h.frontArc = v;
 		else if (key == "fhugcenterblend") h.centerBlend = v;
 		else if (key == "fhuglongskirt") h.longSkirt = v;
+		else if (key == "fhugrelaxstiffness") h.relaxStiffness = v;
+		else if (key == "fhugrelaxangle") h.relaxAngle = v;
+		else if (key == "fhuggroundoff") h.groundOff = v;
 		else return false;
 		return true;
 	}
@@ -457,6 +486,17 @@ namespace
 				else if (key == "bautohug") s.autoHug = v != 0.0f;
 				else if (key == "fhugfreezedelay") s.freezeDelay = v;
 				else if (key == "fseatabove") s.seatAbove = v;
+				else if (key == "bridinghug") s.ridingHug = v != 0.0f;
+				else if (key == "bhorsecollider") s.horseCollider = v != 0.0f;
+				else if (key == "fhorsewidth") s.horseWidth = v;
+				else if (key == "fhorseheight") s.horseHeight = v;
+				else if (key == "fhorsefront") s.horseFront = v;
+				else if (key == "fhorseback") s.horseBack = v;
+				else if (key == "fhorsesaddledrop") s.horseSaddleDrop = v;
+				else if (key == "fhorsearc") s.horseArc = v;
+				else if (key == "fhorsepenetration") s.horsePenetration = v;
+				else if (key.rfind("fride", 0) == 0) ApplyHugKey(s.ride, "fhug" + key.substr(5), v);
+				else if (key == "bridedebug") ApplyHugKey(s.ride, "bhugdebug", v);
 				else ApplyHugKey(s.hug, key, v);
 			} catch (...) {
 			}
@@ -745,6 +785,9 @@ namespace
 		Sweep();
 		const auto s = LoadSettings();
 		const auto id = a_actor->GetFormID();
+		if (a_actor->IsOnMount()) {
+			return;  // riders are handled by the riding poll, never as seated on furniture
+		}
 		RemoveFor(id, "re-sit");
 		if (!s.enabled || !g_world) {
 			return;
@@ -913,7 +956,7 @@ namespace
 				int n = 0;
 				for (auto* a : actors) {
 					auto* state = a ? a->AsActorState() : nullptr;
-					if (!state || state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kIsSitting) {
+					if (!state || state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kIsSitting || a->IsOnMount()) {
 						continue;
 					}
 					auto furn = a->GetOccupiedFurniture().get();
@@ -926,6 +969,249 @@ namespace
 				}
 				SKSE::log::info("rescan after {}: {} seated actor(s)", why, n);
 			});
+		}).detach();
+	}
+
+	// ------------------------------------------------------------------ riding
+	// Mounting a horse sends no furniture event, so riders are found by a light poll (every 0.5 s, main thread):
+	// fully mounted (on a mount and in the riding sit state) -> riding hug on; dismounting or gone -> off.
+	struct Riding
+	{
+		RE::ActorHandle    actor;
+		hdt::world::Handle collider = 0;
+		bool               rebuilt = false;  // outfits rebuilt for riding (hug and/or ground plane off)
+	};
+	std::unordered_map<RE::FormID, Riding> g_riding;  // main thread only
+
+	void RideOff(RE::FormID a_id, const char* a_why)
+	{
+		auto it = g_riding.find(a_id);
+		if (it == g_riding.end()) {
+			return;
+		}
+		if (it->second.collider && g_world) {
+			g_world->removeCollider(it->second.collider);
+			SKSE::log::info("--- {:08X}: horse collider {} removed ({})", a_id, it->second.collider, a_why);
+		}
+		const bool rebuilt = it->second.rebuilt;
+		g_riding.erase(it);
+		if (rebuilt && g_world && g_world->version() >= 3) {
+			g_world->setSeatedHug(a_id, nullptr, nullptr, 0);
+		}
+		SKSE::log::info("--- {:08X}: riding off ({})", a_id, a_why);
+	}
+
+	// Picks the horse spine node nearest to the rider's pelvis (works with any horse skeleton that names its spine bones *Spine*).
+	RE::NiNode* NearestSpineNode(RE::NiAVObject* a_obj, const RE::NiPoint3& a_to, RE::NiNode* a_best, float& a_bestD)
+	{
+		auto node = a_obj ? a_obj->AsNode() : nullptr;
+		if (!node) {
+			return a_best;
+		}
+		std::string nm = node->name.c_str();
+		std::transform(nm.begin(), nm.end(), nm.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		if (nm.find("spine") != std::string::npos) {
+			const float d = node->world.translate.GetDistance(a_to);
+			if (d < a_bestD) {
+				a_bestD = d;
+				a_best = node;
+			}
+		}
+		for (auto& child : node->GetChildren()) {
+			a_best = NearestSpineNode(child.get(), a_to, a_best, a_bestD);
+		}
+		return a_best;
+	}
+
+	// A half barrel over the horse's back and flanks under the rider, normals outward, attached to the spine.
+	hdt::world::Handle AddHorseCollider(RE::Actor* a_rider, const Settings& s)
+	{
+		if (!s.horseCollider || g_world->version() < 6) {
+			return 0;
+		}
+		RE::NiPointer<RE::Actor> horse;
+		if (!a_rider->GetMount(horse) || !horse) {
+			return 0;
+		}
+		auto riderRoot = a_rider->Get3D1(false);
+		auto horseRoot = horse->Get3D1(false);
+		auto pelvis = riderRoot ? riderRoot->GetObjectByName(RE::BSFixedString("NPC Pelvis [Pelv]")) : nullptr;
+		if (!horseRoot || !pelvis) {
+			return 0;
+		}
+		const auto P = pelvis->world.translate;
+		float bestD = 1e30f;
+		auto spine = NearestSpineNode(horseRoot, P, nullptr, bestD);
+		if (!spine) {
+			SKSE::log::info("    horse {:08X}: no spine node found, no horse collider", horse->GetFormID());
+			return 0;
+		}
+		const auto& R = horseRoot->world.rotate;
+		V3 f{ R.entry[0][1], R.entry[1][1], 0.0f };  // horse forward (model +Y) flattened
+		const float fl = std::sqrt(f.x * f.x + f.y * f.y);
+		if (fl < 1e-3f) {
+			return 0;
+		}
+		f = { f.x / fl, f.y / fl, 0.0f };
+		const V3 r{ f.y, -f.x, 0.0f };  // right
+		const float ztop = P.z - s.horseSaddleDrop;
+		const int ns = 14, nl = 4;
+		const float arc = s.horseArc * 0.0174533f;
+		std::vector<float> pos;
+		std::vector<std::uint32_t> idx;
+		for (int il = 0; il <= nl; ++il) {
+			const float along = -s.horseBack + (s.horseFront + s.horseBack) * il / nl;
+			for (int is = 0; is <= ns; ++is) {
+				const float a = -arc + 2.0f * arc * is / ns;
+				const float side = s.horseWidth * std::sin(a);
+				const float z = ztop - s.horseHeight * (1.0f - std::cos(a));
+				pos.insert(pos.end(), { P.x + f.x * along + r.x * side, P.y + f.y * along + r.y * side, z });
+			}
+		}
+		auto at = [&](int il, int is) { return static_cast<std::uint32_t>(il * (ns + 1) + is); };
+		auto vtx = [&](std::uint32_t i) { return V3{ pos[3 * i], pos[3 * i + 1], pos[3 * i + 2] }; };
+		auto tri = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c) {
+			const V3 A = vtx(a), B = vtx(b), C = vtx(c);
+			const V3 e1 = B - A, e2 = C - A;
+			const V3 nrm{ e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z, e1.x * e2.y - e1.y * e2.x };
+			// outward = away from the barrel's axis (through P at the axis height of this cross-section)
+			const V3 m{ (A.x + B.x + C.x) / 3, (A.y + B.y + C.y) / 3, (A.z + B.z + C.z) / 3 };
+			const float t = (m.x - P.x) * f.x + (m.y - P.y) * f.y;
+			const V3 axis{ P.x + f.x * t, P.y + f.y * t, ztop - s.horseHeight };
+			const V3 out = m - axis;
+			if (nrm.x * out.x + nrm.y * out.y + nrm.z * out.z < 0) {
+				idx.insert(idx.end(), { a, c, b });
+			} else {
+				idx.insert(idx.end(), { a, b, c });
+			}
+		};
+		for (int il = 0; il < nl; ++il) {
+			for (int is = 0; is < ns; ++is) {
+				tri(at(il, is), at(il + 1, is), at(il + 1, is + 1));
+				tri(at(il, is), at(il + 1, is + 1), at(il, is + 1));
+			}
+		}
+		hdt::world::ColliderDesc d;
+		d.positions = pos.data();
+		d.vertexCount = static_cast<std::uint32_t>(pos.size() / 3);
+		d.indices = idx.data();
+		d.triangleCount = static_cast<std::uint32_t>(idx.size() / 3);
+		d.margin = s.margin;
+		d.penetration = s.horsePenetration;
+		d.friction = s.friction;
+		d.ownerFormID = a_rider->GetFormID();
+		const auto h = g_world->addAttachedCollider(d, horse->GetFormID(), spine->name.c_str());
+		SKSE::log::info("    horse {:08X}: collider {} on '{}' ({} triangles; width {:.0f}, height {:.0f}, length {:.0f}+{:.0f}, top {:.1f} below pelvis)",
+			horse->GetFormID(), h, spine->name.c_str(), d.triangleCount, s.horseWidth, s.horseHeight, s.horseBack, s.horseFront, s.horseSaddleDrop);
+		return h;
+	}
+
+	void RideOffAll(const char* a_why)
+	{
+		std::vector<RE::FormID> ids;
+		for (auto& [id, h] : g_riding) {
+			ids.push_back(id);
+		}
+		for (auto id : ids) {
+			RideOff(id, a_why);
+		}
+	}
+
+	// Settings for the riding poll: read when someone new mounts (at most every 2 s), not on every poll.
+	std::optional<Settings> g_rideSettings;
+	std::chrono::steady_clock::time_point g_rideSettingsAt{};
+
+	void PollRiding()
+	{
+		if (!g_world || g_world->version() < 3) {
+			return;
+		}
+		auto* player = RE::PlayerCharacter::GetSingleton();
+		std::vector<RE::Actor*> actors;
+		if (player) {
+			actors.push_back(player);
+		}
+		if (auto* lists = RE::ProcessLists::GetSingleton()) {
+			for (auto& h : lists->highActorHandles) {
+				if (auto a = h.get()) {
+					actors.push_back(a.get());
+				}
+			}
+		}
+		auto fullyMounted = [](RE::Actor* a) {
+			auto* state = a->AsActorState();
+			return state && a->IsOnMount() && state->GetSitSleepState() == RE::SIT_SLEEP_STATE::kRidingMount;
+		};
+		// a rider keeps the riding setup until fully off the horse (not when the dismount animation starts:
+		// the ground plane would come back while NPC Root is still at saddle height)
+		auto stillOnHorse = [](RE::Actor* a) {
+			auto* state = a->AsActorState();
+			return a->IsOnMount() || (state && state->GetSitSleepState() != RE::SIT_SLEEP_STATE::kNormal);
+		};
+
+		const auto now = std::chrono::steady_clock::now();
+		bool newRider = false;
+		for (auto* a : actors) {
+			if (a && fullyMounted(a) && !g_riding.contains(a->GetFormID()) && !g_active.contains(a->GetFormID())) {
+				newRider = true;
+			}
+		}
+		if (!g_rideSettings || (newRider && now - g_rideSettingsAt > std::chrono::seconds(2))) {
+			g_rideSettings = LoadSettings();
+			g_rideSettingsAt = now;
+		}
+		const auto& s = *g_rideSettings;
+		// Riding fixes: ground plane off + horse collider (both versions); the riding hug (leg ties) only with bRidingHug.
+		const bool on = s.enabled && (s.ridingHug || s.ride.groundOff > 0.f || s.horseCollider);
+
+		std::unordered_set<RE::FormID> seen;
+		for (auto* a : actors) {
+			if (!a) {
+				continue;
+			}
+			const auto id = a->GetFormID();
+			const bool inRange = a == player || (!s.playerOnly && (!player || a->GetPosition().GetDistance(player->GetPosition()) <= s.maxDistance));
+			if (g_riding.contains(id)) {
+				if (on && inRange && stillOnHorse(a)) {
+					seen.insert(id);
+				}
+				continue;
+			}
+			if (on && inRange && fullyMounted(a) && !g_active.contains(id)) {
+				seen.insert(id);
+				auto params = s.ride;
+				params.size = sizeof(params);
+				params.log = &HugLog;
+				if (!s.ridingHug) {
+					params.maxDist = 0.0f;  // no leg ties: only the ground-plane fix (rebuild) below
+					params.relaxStiffness = 0.0f;
+					params.relaxAngle = 0.0f;
+				}
+				const bool rebuild = s.ridingHug || params.groundOff > 0.f;
+				const auto n = rebuild ? g_world->setSeatedHug(id, &params, nullptr, 0) : 0;
+				g_riding[id] = { a->GetHandle(), AddHorseCollider(a, s), rebuild };
+				SKSE::log::info("+++ {} ({:08X}): riding on, {} hug constraints + ground planes (ground plane {}, riding hug {})",
+					a->GetName(), id, n, params.groundOff > 0.f ? "off" : "kept", s.ridingHug ? "on" : "off");
+			}
+		}
+		std::vector<RE::FormID> gone;
+		for (auto& [id, h] : g_riding) {
+			if (!seen.contains(id)) {
+				gone.push_back(id);
+			}
+		}
+		for (auto id : gone) {
+			RideOff(id, on ? "dismounted or out of range" : "riding disabled");
+		}
+	}
+
+	void StartRidingPoll()
+	{
+		std::thread([]() {
+			for (;;) {
+				std::this_thread::sleep_for(std::chrono::milliseconds(500));
+				SKSE::GetTaskInterface()->AddTask([]() { PollRiding(); });
+			}
 		}).detach();
 	}
 
@@ -992,6 +1278,9 @@ namespace
 				SKSE::log::error("no FSMP world-collision interface: this needs the Flobrim fork of Faster HDT-SMP. Seat collision is OFF.");
 			}
 			RE::ScriptEventSourceHolder::GetSingleton()->AddEventSink<RE::TESFurnitureEvent>(FurnitureSink::Get());
+			if (g_world) {
+				StartRidingPoll();
+			}
 			{
 				const auto s = LoadSettings();
 				SKSE::log::info("kDataLoaded: furniture sink registered; settings: enabled {}, playerOnly {}, maxDistance {:.0f}, upFacingOnly {} (minZ {:.2f}), margin {:.1f}, penetration {:.1f}, friction {:.2f}, seatSwap {}",
@@ -1004,6 +1293,8 @@ namespace
 			}
 			break;
 		case SKSE::MessagingInterface::kPreLoadGame:
+			RideOffAll("loading a save");
+			g_rideSettings.reset();
 			RemoveAll("loading a save");
 			break;
 		case SKSE::MessagingInterface::kPostLoadGame:
@@ -1012,6 +1303,7 @@ namespace
 			}
 			break;
 		case SKSE::MessagingInterface::kNewGame:
+			RideOffAll("new game");
 			RemoveAll("new game");
 			break;
 		default:

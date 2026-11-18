@@ -74,6 +74,12 @@ namespace hdt::world
 		float centerBlend = 0.0f;      // units; panels whose left/right thigh distances differ by less than this are tied softly to BOTH thighs (spans the gap)
 		// appended (fork build wc10):
 		float longSkirt = 0.0f;        // >0 = when the item's cloth bones reach further down the shin than this (0 = knee, 1 = ankle), no hug: long skirts keep plain physics + seat collision
+		// appended (fork build wc11): for items skipped as long skirts, soften their own cloth constraints so gravity can drape them
+		float relaxStiffness = 0.0f;   // >0 = multiply the angular spring stiffness of the skirt's constraints by this (0.1 = 10%); 0 = off
+		float relaxAngle = 0.0f;       // radians: every angular limit of those constraints opens to at least +/- this
+		// appended (fork build wc12):
+		float groundOff = 0.0f;        // >0 = the item's "ground" shapes (VirtualGround planes on NPC Root) are switched off while this is on.
+		                               // Riding lifts NPC Root to the saddle, so that plane would hold the skirt up as a flat disc.
 	};
 
 	struct ColliderDesc
@@ -108,7 +114,7 @@ namespace hdt::world
 	class IWorldCollision
 	{
 	public:
-		static constexpr std::uint32_t VERSION = 5;
+		static constexpr std::uint32_t VERSION = 6;
 
 		virtual std::uint32_t version() const = 0;
 
@@ -154,6 +160,12 @@ namespace hdt::world
 		// params instead of the actor's. nullptr removes the override. Applies to systems built afterwards.
 		virtual void setHugOverride(const char* path, const HugParams* params) = 0;
 		virtual void clearHugOverrides() = 0;
+
+		// v6: like addCollider, but the collider follows a node of another actor's skeleton (e.g. a horse's spine)
+		// every physics frame. desc.positions are world space at the time of the call (main thread); the node is
+		// looked up by name in attachActorFormID's third-person 3D. ownerFormID still selects whose cloth collides.
+		// Returns 0 if the actor or node is not found. Remove with removeCollider.
+		virtual Handle addAttachedCollider(const ColliderDesc& desc, std::uint32_t attachActorFormID, const char* nodeName) = 0;
 
 	protected:
 		~IWorldCollision() = default;
