@@ -1,4 +1,4 @@
-Settle + Clipping Fix  1.1.1 (optional add-on)
+Settle + Clipping Fix  1.1.2 (optional add-on)
 ==============================================
 
 One hdtsmp64.dll that contains both:
@@ -9,7 +9,7 @@ One hdtsmp64.dll that contains both:
 
 Install
 - Install the main Settle file first (and Faster HDT-SMP 4.1.1).
-- Install this add-on and let it overwrite Settle's hdtsmp64.dll (MO2: place it ABOVE Settle in the left pane).
+- Install this add-on and let it overwrite Settle's hdtsmp64.dll (MO2: place it BELOW Settle in the left pane).
 - Do NOT also install FSMP Clothing Clipping Fix itself: this DLL already includes it.
 - Uninstall: remove this add-on; plain Settle takes over again.
 

@@ -397,6 +397,7 @@ namespace
 		bool  autoHug = true;          // generic seated hug (needs interface v3)
 		hdt::world::HugParams hug = DefaultHug();  // release defaults (Settle.ini overrides any of them)
 		float freezeDelay = 2.5f;
+		float seatedMaxThighDrop = 45.0f;  // 1.1.2: hug kept only if thighs point at most this far below level; -1 = no check
 		bool  ridingHug = true;        // hug while riding a horse
 		bool  horseCollider = false;    // riding: a collider over the horse's back and flanks that follows its spine (needs interface v6)
 		float horseWidth = 22.0f;      // half width of the horse's back (units)
@@ -486,6 +487,7 @@ namespace
 				else if (key == "bseatswap") s.seatSwap = v != 0.0f;
 				else if (key == "bautohug") s.autoHug = v != 0.0f;
 				else if (key == "fhugfreezedelay") s.freezeDelay = v;
+				else if (key == "fseatedmaxthighdrop") s.seatedMaxThighDrop = v;
 				else if (key == "fseatabove") s.seatAbove = v;
 				else if (key == "bridinghug") s.ridingHug = v != 0.0f;
 				else if (key == "bhorsecollider") s.horseCollider = v != 0.0f;
@@ -792,6 +794,44 @@ namespace
 		return m;
 	}
 
+	// Settle 1.1.2: crafting stations (forge, smelter, anvil, workbench, tanning rack, alchemy, enchanting) are
+	// furniture too, but the actor stands and works at them: never tie cloth to the legs there.
+	bool IsWorkStation(RE::TESObjectREFR* a_furn)
+	{
+		auto* base = a_furn ? a_furn->GetBaseObject() : nullptr;
+		auto* furn = base ? base->As<RE::TESFurniture>() : nullptr;
+		return furn && furn->workBenchData.benchType.get() != RE::TESFurniture::WorkBenchData::BenchType::kNone;
+	}
+
+	// Settle 1.1.2: Skyrim flags nearly every furniture marker as "sit" (guard posts, leaning, mining, kneeling),
+	// so check the actual pose once the actor has settled: how far the thighs point below level (degrees,
+	// average of both legs; 0 = level, 90 = straight down). Negative = could not tell.
+	float ThighDropDegrees(RE::Actor* a_actor)
+	{
+		auto* root = a_actor ? a_actor->Get3D(false) : nullptr;
+		if (!root) {
+			return -1.0f;
+		}
+		float sum = 0.0f;
+		int legs = 0;
+		static const char* kNames[2][2] = { { "NPC L Thigh [LThg]", "NPC L Calf [LClf]" }, { "NPC R Thigh [RThg]", "NPC R Calf [RClf]" } };
+		for (const auto& leg : kNames) {
+			auto* hip = root->GetObjectByName(RE::BSFixedString(leg[0]));
+			auto* knee = root->GetObjectByName(RE::BSFixedString(leg[1]));
+			if (!hip || !knee) {
+				continue;
+			}
+			const auto v = knee->world.translate - hip->world.translate;
+			const float len = v.Length();
+			if (len < 1.0f) {
+				continue;
+			}
+			sum += std::asin(std::clamp(-v.z / len, -1.0f, 1.0f)) * 57.2958f;
+			++legs;
+		}
+		return legs ? sum / legs : -1.0f;
+	}
+
 	void OnSit(RE::Actor* a_actor, RE::TESObjectREFR* a_furn)
 	{
 		Sweep();
@@ -817,9 +857,14 @@ namespace
 			return;
 		}
 
+		const bool workStation = IsWorkStation(a_furn);
+		if (workStation && (s.autoHug || s.seatSwap)) {
+			SKSE::log::info("+++ {} ({:08X}) uses work station {:08X}: no seated hug or seat swap", a_actor->GetName(), id, a_furn->GetFormID());
+		}
+
 		// seated physics swap (before the collider; swapped systems keep their pose)
 		std::vector<SwapPair> swapped;
-		if (s.seatSwap && g_world->version() >= 2) {
+		if (s.seatSwap && !workStation && g_world->version() >= 2) {
 			for (const auto& sp : LoadSwapPairs()) {
 				if (g_world->swapPhysicsFile(id, sp.standing.c_str(), sp.seated.c_str())) {
 					SKSE::log::info("+++ {} ({:08X}): seat swap '{}' -> '{}'", a_actor->GetName(), id, sp.standing, sp.seated);
@@ -829,7 +874,7 @@ namespace
 		}
 		// generic hug for every item not already swapped to a hand-made seated XML
 		bool hugOn = false;
-		if (s.autoHug && g_world->version() >= 3) {
+		if (s.autoHug && !workStation && g_world->version() >= 3) {
 			std::vector<const char*> skip;
 			for (const auto& sp : swapped) {
 				skip.push_back(sp.seated.c_str());
@@ -867,22 +912,57 @@ namespace
 			}
 		};
 		// freeze the settled cloth once the actor is fully seated (+ freezeDelay)
-		if (hugOn && s.freezeDelay > 0.0f && g_world->version() >= 4) {
+		// once the actor has settled: keep the hug only in a real seated pose (thighs near level), then freeze it.
+		// The pose is sampled for a while: one snapshot can catch an NPC whose skeleton isn't animated yet (it then
+		// sits in the default pose, thighs straight down), or one that is in the middle of getting up.
+		if (hugOn && g_world->version() >= 4) {
 			auto actorHandle = a_actor->GetHandle();
-			const float delay = s.freezeDelay;
-			std::thread([actorHandle, id, serial, delay]() {
-				auto seatedSince = std::chrono::steady_clock::time_point{};
-				for (int i = 0; i < 160; ++i) {  // up to 40 s
+			const bool doFreeze = s.freezeDelay > 0.0f;
+			const float delay = doFreeze ? s.freezeDelay : 1.5f;
+			const float maxDrop = s.seatedMaxThighDrop;
+			std::thread([actorHandle, id, serial, delay, doFreeze, maxDrop]() {
+				using clock = std::chrono::steady_clock;
+				auto seatedSince = clock::time_point{};
+				auto sampleSince = clock::time_point{};
+				float lo = 1000.0f, hi = -1000.0f;
+				int samples = 0;
+				// verdict on the main thread: 0 keep (+freeze), 1 not seated (hug off)
+				auto finish = [actorHandle, id, serial, doFreeze, maxDrop](int verdict, float a, float b, int n) {
+					SKSE::GetTaskInterface()->AddTask([id, serial, doFreeze, maxDrop, verdict, a, b, n]() {
+						auto it = g_active.find(id);
+						if (it == g_active.end() || it->second.serial != serial || !g_world) {
+							return;
+						}
+						if (verdict == 1 && it->second.hug) {
+							g_world->setSeatedHug(id, nullptr, nullptr, 0);
+							it->second.hug = false;
+							SKSE::log::info("--- {:08X}: not a seated pose (thighs {:.0f}-{:.0f} deg below level over {} samples > fSeatedMaxThighDrop {:.0f}): seated hug off, seat collision kept", id, a, b, n, maxDrop);
+							return;
+						}
+						if (!doFreeze) {
+							return;
+						}
+						const auto c = g_world->freezeSeatedHug(id);
+						if (n > 0) {
+							SKSE::log::info("+++ {:08X}: seated hug frozen ({} constraints locked; thighs {:.0f}-{:.0f} deg below level{})", id, c, a, b, verdict == 2 ? ", skeleton not animating: kept" : "");
+						} else {
+							SKSE::log::info("+++ {:08X}: seated hug frozen ({} constraints locked)", id, c);
+						}
+					});
+				};
+				for (int i = 0; i < 200; ++i) {  // up to ~50 s
 					std::this_thread::sleep_for(std::chrono::milliseconds(250));
 					auto state = std::make_shared<int>(0);  // 0 waiting, 1 seated, 2 abort
+					auto drop = std::make_shared<float>(-1.0f);
 					auto done = std::make_shared<std::atomic<bool>>(false);
-					SKSE::GetTaskInterface()->AddTask([actorHandle, id, serial, state, done]() {
+					SKSE::GetTaskInterface()->AddTask([actorHandle, id, serial, state, drop, done]() {
 						auto it = g_active.find(id);
 						auto actor = actorHandle.get();
 						if (it == g_active.end() || it->second.serial != serial || !actor) {
 							*state = 2;
 						} else if (actor->AsActorState()->GetSitSleepState() == RE::SIT_SLEEP_STATE::kIsSitting) {
 							*state = 1;
+							*drop = ThighDropDegrees(actor.get());
 						}
 						done->store(true);
 					});
@@ -892,21 +972,38 @@ namespace
 					if (!done->load() || *state == 2) {
 						return;
 					}
-					if (*state == 1) {
-						if (seatedSince == std::chrono::steady_clock::time_point{}) {
-							seatedSince = std::chrono::steady_clock::now();
-						}
-						if (std::chrono::steady_clock::now() - seatedSince >= std::chrono::milliseconds(static_cast<int>(delay * 1000))) {
-							SKSE::GetTaskInterface()->AddTask([id, serial]() {
-								auto it = g_active.find(id);
-								if (it == g_active.end() || it->second.serial != serial || !g_world) {
-									return;
-								}
-								const auto n = g_world->freezeSeatedHug(id);
-								SKSE::log::info("+++ {:08X}: seated hug frozen ({} constraints locked)", id, n);
-							});
-							return;
-						}
+					if (*state != 1) {
+						continue;
+					}
+					const auto now = clock::now();
+					if (seatedSince == clock::time_point{}) {
+						seatedSince = now;
+					}
+					if (now - seatedSince < std::chrono::milliseconds(static_cast<int>(delay * 1000))) {
+						continue;
+					}
+					if (maxDrop < 0.0f || *drop < 0.0f) {  // check off, or legs not found: behave like 1.1.1
+						finish(0, 0, 0, 0);
+						return;
+					}
+					if (sampleSince == clock::time_point{}) {
+						sampleSince = now;
+					}
+					lo = std::min(lo, *drop);
+					hi = std::max(hi, *drop);
+					++samples;
+					if (lo <= maxDrop) {  // seen seated
+						finish(0, lo, hi, samples);
+						return;
+					}
+					const auto sampling = now - sampleSince;
+					if (hi - lo >= 1.0f && sampling >= std::chrono::milliseconds(1500)) {  // moving and never seated
+						finish(1, lo, hi, samples);
+						return;
+					}
+					if (sampling >= std::chrono::seconds(30)) {  // never moved: skeleton not animated, keep (1.1.1 behaviour)
+						finish(2, lo, hi, samples);
+						return;
 					}
 				}
 			}).detach();

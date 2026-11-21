@@ -2,7 +2,7 @@
 <fomod>
 	<Name>Settle - Seat Collision for SMP Cloth</Name>
 	<Author>iFlob</Author>
-	<Version>1.1.1</Version>
+	<Version>1.1.2</Version>
 	<Description>SMP cloth collides with seats, and short skirts lie on the legs while seated. Includes a modified Faster HDT-SMP 4.1.1 (hdtsmp64.dll).</Description>
 	<Groups><element>Physics</element></Groups>
 </fomod>

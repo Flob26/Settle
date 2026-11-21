@@ -19,7 +19,7 @@ if not exist "extern\CommonLibSSE\CMakeLists.txt" (
 )
 cmake -S . -B build -A x64 "-DCMAKE_TOOLCHAIN_FILE=%VCPKG_ROOT%\scripts\buildsystems\vcpkg.cmake" -DVCPKG_TARGET_TRIPLET=x64-windows-static-md || exit /b 1
 cmake --build build --config Release || exit /b 1
-set "OUT=..\..\Flobrim\mods\Settle\SKSE\Plugins"
+set "OUT=..\..\Flobrim\mods\Settle - Seat Collision for SMP Cloth\SKSE\Plugins"
 if not exist "%OUT%" mkdir "%OUT%"
 copy /y "build\Release\Settle.dll" "%OUT%\" || exit /b 1
 if exist "build\Release\Settle.pdb" copy /y "build\Release\Settle.pdb" "%OUT%\"
