@@ -620,6 +620,7 @@ namespace
 		RE::ActorHandle    actor;
 		std::vector<SwapPair> swapped;  // seat swaps applied on sit, reverted on stand
 		bool               hug = false;  // generic hug turned on for this actor
+		bool               hugPending = false;  // 1.1.2: hug wanted, waiting for a seated pose
 		std::uint32_t      serial = 0;   // identifies this sit (for the delayed freeze)
 	};
 	std::uint32_t g_sitSerial = 0;
@@ -832,6 +833,41 @@ namespace
 		return legs ? sum / legs : -1.0f;
 	}
 
+	// turn the generic hug on for every item not already swapped to a hand-made seated XML (main thread)
+	std::uint32_t TurnHugOn(RE::FormID id, const char* a_name, const std::vector<SwapPair>& swapped)
+	{
+		const auto s = LoadSettings();
+		std::vector<const char*> skip;
+		for (const auto& sp : swapped) {
+			skip.push_back(sp.seated.c_str());
+		}
+		auto params = s.hug;
+		params.size = sizeof(params);
+		params.log = &HugLog;
+		std::vector<HugOverride> overrides;  // must outlive setSeatedHug (skip points into it)
+		if (g_world->version() >= 5) {
+			overrides = LoadHugOverrides(s.hug);
+			g_world->clearHugOverrides();
+			for (auto& [path, ov, ignore] : overrides) {
+				if (ignore) {
+					skip.push_back(path.c_str());
+					SKSE::log::info("    hug override '{}': ignored (bIgnore)", path);
+					continue;
+				}
+				ov.size = sizeof(ov);
+				g_world->setHugOverride(path.c_str(), &ov);
+				SKSE::log::info("    hug override '{}': pullFraction {:.2f}, pull {:.1f}, centerBand {:.1f}, kneeT {:.2f}, shinMax {:.2f}, pullMode {:.0f}, shinSurface {:.1f}, frontArc {:.0f}, centerBlend {:.1f}",
+					path, ov.pullFraction, ov.pull, ov.centerBand, ov.kneeT, ov.shinMax, ov.pullMode, ov.shinSurface, ov.frontArc, ov.centerBlend);
+			}
+		}
+		const auto n = g_world->setSeatedHug(id, &params, skip.data(), static_cast<std::uint32_t>(skip.size()));
+		SKSE::log::info("+++ {} ({:08X}): seated hug on, {} constraints (tMin {:.2f}, tMax {:.2f}, maxDist {:.1f}, lin {:.1f}/{:.0f}, ang {:.2f}/{:.0f}, damping {:.2f}, backLift {:.1f}, pull {:.1f}, surface {:.1f}, shinMax {:.2f}, shinSurface {:.1f}, pullFraction {:.2f}, kneeT {:.2f}, centerBand {:.1f})",
+			a_name, id, n, params.tMin, params.tMax, params.maxDist, params.linearLimit, params.linearStiffness,
+			params.angularLimit, params.angularStiffness, params.damping, params.backLift, params.pull, params.surface,
+			params.shinMax, params.shinSurface, params.pullFraction, params.kneeT, params.centerBand);
+		return n;
+	}
+
 	void OnSit(RE::Actor* a_actor, RE::TESObjectREFR* a_furn)
 	{
 		Sweep();
@@ -872,138 +908,91 @@ namespace
 				}
 			}
 		}
-		// generic hug for every item not already swapped to a hand-made seated XML
-		bool hugOn = false;
-		if (s.autoHug && !workStation && g_world->version() >= 3) {
-			std::vector<const char*> skip;
-			for (const auto& sp : swapped) {
-				skip.push_back(sp.seated.c_str());
-			}
-			auto params = s.hug;
-			params.size = sizeof(params);
-			params.log = &HugLog;
-			std::vector<HugOverride> overrides;  // must outlive setSeatedHug (skip points into it)
-			if (g_world->version() >= 5) {
-				overrides = LoadHugOverrides(s.hug);
-				g_world->clearHugOverrides();
-				for (auto& [path, ov, ignore] : overrides) {
-					if (ignore) {
-						skip.push_back(path.c_str());
-						SKSE::log::info("    hug override '{}': ignored (bIgnore)", path);
-						continue;
-					}
-					ov.size = sizeof(ov);
-					g_world->setHugOverride(path.c_str(), &ov);
-					SKSE::log::info("    hug override '{}': pullFraction {:.2f}, pull {:.1f}, centerBand {:.1f}, kneeT {:.2f}, shinMax {:.2f}, pullMode {:.0f}, shinSurface {:.1f}, frontArc {:.0f}, centerBlend {:.1f}",
-						path, ov.pullFraction, ov.pull, ov.centerBand, ov.kneeT, ov.shinMax, ov.pullMode, ov.shinSurface, ov.frontArc, ov.centerBlend);
-				}
-			}
-			const auto n = g_world->setSeatedHug(id, &params, skip.data(), static_cast<std::uint32_t>(skip.size()));
-			hugOn = true;
-			SKSE::log::info("+++ {} ({:08X}): seated hug on, {} constraints (tMin {:.2f}, tMax {:.2f}, maxDist {:.1f}, lin {:.1f}/{:.0f}, ang {:.2f}/{:.0f}, damping {:.2f}, backLift {:.1f}, pull {:.1f}, surface {:.1f}, shinMax {:.2f}, shinSurface {:.1f}, pullFraction {:.2f}, kneeT {:.2f}, centerBand {:.1f})",
-				a_actor->GetName(), id, n, params.tMin, params.tMax, params.maxDist, params.linearLimit, params.linearStiffness,
-				params.angularLimit, params.angularStiffness, params.damping, params.backLift, params.pull, params.surface,
-				params.shinMax, params.shinSurface, params.pullFraction, params.kneeT, params.centerBand);
-		}
+		// generic hug: since 1.1.2 it is NOT applied on entering the furniture. Skyrim flags nearly every furniture
+		// marker as "sit" (guard posts, leaning, mining, kneeling), so Settle waits until the actor has settled and
+		// only ties the cloth once it actually sees a seated pose (thighs near level); standing actors never get it.
+		const bool wantHug = s.autoHug && !workStation && g_world->version() >= 3;
 		const std::uint32_t serial = ++g_sitSerial;
 		auto remember = [&](hdt::world::Handle h) {
-			if (h || !swapped.empty() || hugOn) {
-				g_active[id] = { h, a_furn->GetFormID(), a_actor->GetHandle(), std::move(swapped), hugOn, serial };
+			if (h || !swapped.empty() || wantHug) {
+				g_active[id] = { h, a_furn->GetFormID(), a_actor->GetHandle(), std::move(swapped), false, wantHug, serial };
 			}
 		};
-		// freeze the settled cloth once the actor is fully seated (+ freezeDelay)
-		// once the actor has settled: keep the hug only in a real seated pose (thighs near level), then freeze it.
-		// The pose is sampled for a while: one snapshot can catch an NPC whose skeleton isn't animated yet (it then
-		// sits in the default pose, thighs straight down), or one that is in the middle of getting up.
-		if (hugOn && g_world->version() >= 4) {
+		if (wantHug) {
 			auto actorHandle = a_actor->GetHandle();
-			const bool doFreeze = s.freezeDelay > 0.0f;
-			const float delay = doFreeze ? s.freezeDelay : 1.5f;
+			const float freezeDelay = g_world->version() >= 4 ? s.freezeDelay : 0.0f;
 			const float maxDrop = s.seatedMaxThighDrop;
-			std::thread([actorHandle, id, serial, delay, doFreeze, maxDrop]() {
+			std::thread([actorHandle, id, serial, freezeDelay, maxDrop]() {
 				using clock = std::chrono::steady_clock;
-				auto seatedSince = clock::time_point{};
-				auto sampleSince = clock::time_point{};
+				auto firstSample = clock::time_point{};
+				auto hugSince = clock::time_point{};
 				float lo = 1000.0f, hi = -1000.0f;
-				int samples = 0;
-				// verdict on the main thread: 0 keep (+freeze), 1 not seated (hug off)
-				auto finish = [actorHandle, id, serial, doFreeze, maxDrop](int verdict, float a, float b, int n) {
-					SKSE::GetTaskInterface()->AddTask([id, serial, doFreeze, maxDrop, verdict, a, b, n]() {
-						auto it = g_active.find(id);
-						if (it == g_active.end() || it->second.serial != serial || !g_world) {
-							return;
-						}
-						if (verdict == 1 && it->second.hug) {
-							g_world->setSeatedHug(id, nullptr, nullptr, 0);
-							it->second.hug = false;
-							SKSE::log::info("--- {:08X}: not a seated pose (thighs {:.0f}-{:.0f} deg below level over {} samples > fSeatedMaxThighDrop {:.0f}): seated hug off, seat collision kept", id, a, b, n, maxDrop);
-							return;
-						}
-						if (!doFreeze) {
-							return;
-						}
-						const auto c = g_world->freezeSeatedHug(id);
-						if (n > 0) {
-							SKSE::log::info("+++ {:08X}: seated hug frozen ({} constraints locked; thighs {:.0f}-{:.0f} deg below level{})", id, c, a, b, verdict == 2 ? ", skeleton not animating: kept" : "");
-						} else {
-							SKSE::log::info("+++ {:08X}: seated hug frozen ({} constraints locked)", id, c);
-						}
-					});
-				};
-				for (int i = 0; i < 200; ++i) {  // up to ~50 s
+				for (int i = 0; i < 2400; ++i) {  // every 0.25 s while seated, at most 10 min
 					std::this_thread::sleep_for(std::chrono::milliseconds(250));
-					auto state = std::make_shared<int>(0);  // 0 waiting, 1 seated, 2 abort
+					// 0 waiting, 1 sampled, 2 abort (stood up / re-sat / gone), 3 hug turned on, 4 frozen
+					auto state = std::make_shared<int>(0);
 					auto drop = std::make_shared<float>(-1.0f);
 					auto done = std::make_shared<std::atomic<bool>>(false);
-					SKSE::GetTaskInterface()->AddTask([actorHandle, id, serial, state, drop, done]() {
+					const bool hugOn = hugSince != clock::time_point{};
+					const bool freezeNow = hugOn && freezeDelay > 0.0f &&
+						clock::now() - hugSince >= std::chrono::milliseconds(static_cast<int>(freezeDelay * 1000));
+					SKSE::GetTaskInterface()->AddTask([actorHandle, id, serial, state, drop, done, hugOn, freezeNow, maxDrop]() {
 						auto it = g_active.find(id);
 						auto actor = actorHandle.get();
-						if (it == g_active.end() || it->second.serial != serial || !actor) {
+						if (it == g_active.end() || it->second.serial != serial || !actor || !g_world) {
 							*state = 2;
-						} else if (actor->AsActorState()->GetSitSleepState() == RE::SIT_SLEEP_STATE::kIsSitting) {
-							*state = 1;
+						} else if (actor->AsActorState()->GetSitSleepState() != RE::SIT_SLEEP_STATE::kIsSitting) {
+							*state = 0;
+						} else if (freezeNow) {
+							const auto c = g_world->freezeSeatedHug(id);
+							SKSE::log::info("+++ {:08X}: seated hug frozen ({} constraints locked)", id, c);
+							*state = 4;
+						} else if (!hugOn) {
 							*drop = ThighDropDegrees(actor.get());
+							if (maxDrop < 0.0f || *drop < 0.0f || *drop <= maxDrop) {  // seated (or check off / legs not found)
+								TurnHugOn(id, actor->GetName(), it->second.swapped);
+								it->second.hug = true;
+								it->second.hugPending = false;
+								if (*drop >= 0.0f) {
+									SKSE::log::info("    {:08X}: seated pose (thighs {:.0f} deg below level)", id, *drop);
+								}
+								*state = 3;
+							} else {
+								*state = 1;
+							}
 						}
 						done->store(true);
 					});
 					for (int w = 0; w < 200 && !done->load(); ++w) {
 						std::this_thread::sleep_for(std::chrono::milliseconds(5));
 					}
-					if (!done->load() || *state == 2) {
+					if (!done->load() || *state == 2 || *state == 4) {
 						return;
 					}
-					if (*state != 1) {
+					if (*state == 3) {
+						hugSince = clock::now();
+						if (freezeDelay <= 0.0f) {
+							return;
+						}
 						continue;
 					}
-					const auto now = clock::now();
-					if (seatedSince == clock::time_point{}) {
-						seatedSince = now;
-					}
-					if (now - seatedSince < std::chrono::milliseconds(static_cast<int>(delay * 1000))) {
-						continue;
-					}
-					if (maxDrop < 0.0f || *drop < 0.0f) {  // check off, or legs not found: behave like 1.1.1
-						finish(0, 0, 0, 0);
-						return;
-					}
-					if (sampleSince == clock::time_point{}) {
-						sampleSince = now;
-					}
-					lo = std::min(lo, *drop);
-					hi = std::max(hi, *drop);
-					++samples;
-					if (lo <= maxDrop) {  // seen seated
-						finish(0, lo, hi, samples);
-						return;
-					}
-					const auto sampling = now - sampleSince;
-					if (hi - lo >= 1.0f && sampling >= std::chrono::milliseconds(1500)) {  // moving and never seated
-						finish(1, lo, hi, samples);
-						return;
-					}
-					if (sampling >= std::chrono::seconds(30)) {  // never moved: skeleton not animated, keep (1.1.1 behaviour)
-						finish(2, lo, hi, samples);
-						return;
+					if (*state == 1) {  // not seated: decide once the actor has visibly moved for a while
+						const auto now = clock::now();
+						if (firstSample == clock::time_point{}) {
+							firstSample = now;
+						}
+						lo = std::min(lo, *drop);
+						hi = std::max(hi, *drop);
+						if (hi - lo >= 1.0f && now - firstSample >= std::chrono::seconds(3)) {
+							SKSE::GetTaskInterface()->AddTask([id, serial, lo, hi, maxDrop]() {
+								auto it = g_active.find(id);
+								if (it != g_active.end() && it->second.serial == serial) {
+									it->second.hugPending = false;
+									SKSE::log::info("--- {:08X}: not a seated pose (thighs {:.0f}-{:.0f} deg below level > fSeatedMaxThighDrop {:.0f}): no hug, seat collision only", id, lo, hi, maxDrop);
+								}
+							});
+							return;
+						}
 					}
 				}
 			}).detach();

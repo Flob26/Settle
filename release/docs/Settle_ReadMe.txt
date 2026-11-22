@@ -1,4 +1,4 @@
-Settle - Seat Collision for SMP Cloth  1.1.2 (beta)
+Settle - Seat Collision for SMP Cloth  1.1.3 (beta)
 ====================================================
 
 What it does
@@ -10,8 +10,8 @@ What it does
   while riding (both versions).
   Main version: short skirts and robes are also tied to the thighs while riding.
 - Tails (equippable SMP tails) are never tied to the legs.
-- Only real seats get the hug: work stations (forge, smelter, workbench, ...) never do, and if an actor's thighs point
-  down once settled (guard posts, leaning, kneeling, mining) the hug is removed again (fSeatedMaxThighDrop).
+- Only real sitting gets the hug: it is applied once the actor has settled into a seated pose. Work stations (forge,
+  smelter, workbench, ...) and standing poses (guard posts, leaning, kneeling, mining) never get it (fSeatedMaxThighDrop).
 
 Requirements
 - Skyrim SE/AE with SKSE and Address Library for SKSE Plugins. Tested on 1.6.1170.
@@ -36,6 +36,8 @@ Known limits
 - AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs).
 
 Changelog
+- 1.1.3: the leg hug is now applied only once an actor has settled into a seated pose, so NPCs standing still
+  at furniture (guard posts) no longer get it either.
 - 1.1.2: the leg hug no longer applies to standing actors using furniture (guard posts, work stations, mining,
   leaning, kneeling), which could stretch their armor or clothes.
 - 1.1.1: tails are no longer tied to the legs; bIgnore = 1 in HugOverrides to leave an item alone (paths are
