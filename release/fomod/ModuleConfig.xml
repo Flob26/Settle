@@ -9,6 +9,13 @@
 			<optionalFileGroups order="Explicit">
 				<group name="Which Faster HDT-SMP variant did you install?" type="SelectExactlyOne">
 					<plugins order="Explicit">
+						<plugin name="No AVX">
+							<description>Only for CPUs without AVX (older than roughly 2011). It runs on any CPU but is slower than the AVX versions on CPUs that have AVX.</description>
+							<files>
+								<folder source="01 CPU No AVX" destination="" />
+							</files>
+							<typeDescriptor><type name="Optional" /></typeDescriptor>
+						</plugin>
 						<plugin name="AVX">
 							<description>Pick the same variant you chose when installing Faster HDT-SMP. AVX runs on every CPU from roughly 2011 on.</description>
 							<files>

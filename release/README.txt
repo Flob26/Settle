@@ -1,4 +1,4 @@
 Packaging layout (Dev/Settle-release/Settle <ver>/): fomod/ (info.xml, ModuleConfig.xml), 00 Core (Settle.dll, data/SKSE/Plugins/Settle/*, docs/Settle_ReadMe.txt -> Docs/Settle/, fork LICENSE + EXCEPTIONS -> Docs/Settle/Licenses/),
-01 CPU AVX|AVX2|AVX-512 (hdtsmp64.dll + its matching hdtsmp64.pdb from the fork presets flobrim-vs2026-avx|avx2|avx512, branch flobrim-world-collision), 10 Main (data/SKSE/Plugins/Settle.ini), 20 Collision Only (Settle.CollisionOnly.ini as Settle.ini).
+01 CPU No AVX|AVX|AVX2|AVX-512 (hdtsmp64.dll + its matching hdtsmp64.pdb from the fork presets flobrim-vs2026-noavx|avx|avx2|avx512, branch flobrim-world-collision), 10 Main (data/SKSE/Plugins/Settle.ini), 20 Collision Only (Settle.CollisionOnly.ini as Settle.ini).
 Optional merge file (Settle + Clipping Fix <ver>): fomod/merge-*.xml as info.xml/ModuleConfig.xml, 00 Core/Docs (docs/Settle_ClippingFix_ReadMe.txt + licenses), 01 CPU * with hdtsmp64.dll from branch settle-guard.
-All six DLLs: Dev/FSMP-fork/build_fsmp.bat -> Dev/Settle-release/dlls/<main|merge>/<variant>/. Archive: 7z -mx=9.
+All eight DLLs: Dev/FSMP-fork/build_fsmp.bat -> Dev/Settle-release/dlls/<main|merge>/<variant>/. Archive: 7z -mx=9.

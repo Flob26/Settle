@@ -1,4 +1,4 @@
-Settle - Seat Collision for SMP Cloth  1.1.3 (beta)
+Settle - Seat Collision for SMP Cloth  1.2.0 (beta)
 ====================================================
 
 What it does
@@ -16,7 +16,7 @@ What it does
 Requirements
 - Skyrim SE/AE with SKSE and Address Library for SKSE Plugins. Tested on 1.6.1170.
 - Faster HDT-SMP 4.1.1 (by DaymareOn and contributors).
-  Settle ships a modified build of it (SKSE\Plugins\hdtsmp64.dll) in AVX, AVX2 and AVX-512 versions;
+  Settle ships a modified build of it (SKSE\Plugins\hdtsmp64.dll) in No AVX, AVX, AVX2 and AVX-512 versions;
   the installer asks which one: pick the same variant you chose when installing FSMP. Settle must overwrite FSMP's DLL:
   in MO2 put Settle BELOW Faster HDT-SMP in the left pane; in Vortex make Settle load after it.
   FSMP's other files (configs) are still used.
@@ -33,9 +33,14 @@ Settings
 Known limits
 - Only real seats with collision: no effect on invisible sit markers (rocks, ledges, ground), tables or walls.
 - Long and slit skirts get seat collision only (no hug); on horseback they hang freely.
-- AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs).
+- AVX-512 only runs on CPUs that support it; if unsure, choose AVX2 (or AVX on older CPUs). No AVX is only for CPUs without AVX.
 
 Changelog
+- 1.2.0: fixed skirts stretching into long sheets as soon as the actor sat down with some armors (e.g. Sons of
+  Skyrim SMP Reborn guard armor): their own leg bones were not read before the leg ties were built.
+  Cloth that is locked to the legs once settled no longer jitters against the seat (pouches, back panels).
+  Capes, cloaks and other items that are not tied to the legs keep their physics untouched when someone sits.
+  New No AVX version for CPUs without AVX.
 - 1.1.3: the leg hug is now applied only once an actor has settled into a seated pose, so NPCs standing still
   at furniture (guard posts) no longer get it either.
 - 1.1.2: the leg hug no longer applies to standing actors using furniture (guard posts, work stations, mining,

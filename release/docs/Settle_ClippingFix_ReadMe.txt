@@ -1,4 +1,4 @@
-Settle + Clipping Fix  1.1.2 (optional add-on)
+Settle + Clipping Fix  1.2.0 (optional add-on)
 ==============================================
 
 One hdtsmp64.dll that contains both:
@@ -16,7 +16,7 @@ Install
 Known behavior
 - When an actor sits down, the skirt can dip below the seat for about a second before it settles on top.
   (The Clipping Fix holds freshly rebuilt physics at rest briefly; Settle rebuilds the outfit's physics on sit.)
-- AVX, AVX2 and AVX-512 builds: the installer asks which one; pick the same variant you chose for FSMP.
+- No AVX, AVX, AVX2 and AVX-512 builds: the installer asks which one; pick the same variant you chose for FSMP.
 - Clipping Fix settings (guardDiscontinuities, teleportSpeedLimit, ...) can be added to FSMP's configs.json
   under "smp"; the defaults need no changes. See the Clipping Fix page for details.
 

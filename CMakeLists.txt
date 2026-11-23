@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.22)
 
 # Settle - Seat Collision for SMP Cloth - Robert's SKSE plugin.
 # Address-library based (SE/AE); tested on 1.6.1170.
-project(Settle VERSION 1.1.3 LANGUAGES CXX)
+project(Settle VERSION 1.2.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
